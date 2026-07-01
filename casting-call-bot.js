@@ -183,8 +183,20 @@ function formatPostBody(fields) {
 
 const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 
-client.once(Events.ClientReady, (c) => {
+client.once(Events.ClientReady, async (c) => {
   console.log(`✅ Logged in as ${c.user.tag}`);
+
+  // Register slash commands on startup
+  try {
+    const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
+    const route = GUILD_ID
+      ? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
+      : Routes.applicationCommands(CLIENT_ID);
+    await rest.put(route, { body: commands });
+    console.log("✅ Slash commands registered.");
+  } catch (err) {
+    console.error("Failed to register commands:", err);
+  }
 });
 
 // ─── Interaction handler ──────────────────────────────────────────────────────
