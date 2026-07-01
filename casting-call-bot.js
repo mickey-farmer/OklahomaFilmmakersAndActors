@@ -344,10 +344,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // ── Cast/Crew button → show tag picker for chosen channel ──────────────────
   if (interaction.isButton() && interaction.customId.startsWith(GIG_TYPE_BUTTON_PREFIX)) {
     const gigType = interaction.customId.replace(GIG_TYPE_BUTTON_PREFIX, "");
-    await interaction.update({
-      content: `Got it — posting a **${gigLabel(gigType)}**. One more step…`,
-      components: [],
-    });
     await showTagPicker(interaction, gigType);
     return;
   }
