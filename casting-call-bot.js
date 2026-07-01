@@ -101,19 +101,11 @@ function buildCastingCallModal() {
     .setRequired(true)
     .setMaxLength(200);
 
-  const location = new TextInputBuilder()
-    .setCustomId("location")
-    .setLabel("Location")
+  const locationAndDates = new TextInputBuilder()
+    .setCustomId("location_and_dates")
+    .setLabel("Location & Dates")
     .setStyle(TextInputStyle.Short)
-    .setPlaceholder("e.g. Los Angeles, CA / Remote / Hybrid")
-    .setRequired(true)
-    .setMaxLength(200);
-
-  const dates = new TextInputBuilder()
-    .setCustomId("dates")
-    .setLabel("Dates")
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder("e.g. Auditions: Aug 5–6 | Shoot: Aug 20–24, 2026")
+    .setPlaceholder("e.g. Los Angeles, CA | Auditions: Aug 5–6, Shoot: Aug 20–24")
     .setRequired(true)
     .setMaxLength(300);
 
@@ -141,8 +133,7 @@ function buildCastingCallModal() {
   modal.addComponents(
     new ActionRowBuilder().addComponents(projectTitle),
     new ActionRowBuilder().addComponents(compensation),
-    new ActionRowBuilder().addComponents(location),
-    new ActionRowBuilder().addComponents(dates),
+    new ActionRowBuilder().addComponents(locationAndDates),
     new ActionRowBuilder().addComponents(characterBreakdown),
     new ActionRowBuilder().addComponents(submissionInstructions)
   );
@@ -153,7 +144,7 @@ function buildCastingCallModal() {
 // ─── Format the forum post body ───────────────────────────────────────────────
 
 function formatPostBody(fields) {
-  const { compensation, location, dates, character_breakdown, submission_instructions } =
+  const { compensation, location_and_dates, character_breakdown, submission_instructions } =
     fields;
 
   return [
@@ -162,11 +153,8 @@ function formatPostBody(fields) {
     `**💰 Compensation**`,
     compensation,
     ``,
-    `**📍 Location**`,
-    location,
-    ``,
-    `**📅 Dates**`,
-    dates,
+    `**📍 Location & Dates**`,
+    location_and_dates,
     ``,
     `**🎭 Character Breakdown**`,
     character_breakdown,
@@ -217,19 +205,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     const get = (id) => interaction.fields.getTextInputValue(id);
 
-    const projectTitle      = get("project_title");
-    const compensation      = get("compensation");
-    const location          = get("location");
-    const dates             = get("dates");
-    const characterBreakdown = get("character_breakdown");
+    const projectTitle           = get("project_title");
+    const compensation           = get("compensation");
+    const locationAndDates       = get("location_and_dates");
+    const characterBreakdown     = get("character_breakdown");
     const submissionInstructions = get("submission_instructions");
 
     const postedBy = interaction.user.toString(); // mention
 
     const postBody = formatPostBody({
       compensation,
-      location,
-      dates,
+      location_and_dates: locationAndDates,
       character_breakdown: characterBreakdown,
       submission_instructions: submissionInstructions,
       postedBy,
