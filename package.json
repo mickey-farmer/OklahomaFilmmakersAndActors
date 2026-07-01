@@ -1,0 +1,14 @@
+{
+  "name": "casting-call-bot",
+  "version": "1.0.0",
+  "description": "Discord.js v14 bot for posting casting calls to a Forum Channel",
+  "main": "casting-call-bot.js",
+  "scripts": {
+    "start": "node casting-call-bot.js",
+    "deploy": "node casting-call-bot.js --deploy"
+  },
+  "dependencies": {
+    "discord.js": "^14.0.0",
+    "dotenv": "^16.0.0"
+  }
+}
