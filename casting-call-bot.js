@@ -1,8 +1,9 @@
 /**
- * Discord.js v14 — Casting Call Bot
+ * Discord.js v14 — OF&A Gig Bot
  *
- * Triggers: /new-casting-call slash command OR a "New Casting Call" button click.
- * Opens a 6-field modal. On submit, posts a formatted thread to a Forum Channel.
+ * Commands:
+ *   /new-gig          → choose Cast or Crew → tag picker → modal → forum post
+ *   /new-casting-call → shortcut directly to casting call flow
  *
  * Setup:
  *   npm install discord.js dotenv
@@ -10,13 +11,14 @@
  * .env:
  *   BOT_TOKEN=your_bot_token
  *   CLIENT_ID=your_application_id
- *   GUILD_ID=your_guild_id          (for instant command deploy; remove for global)
- *   FORUM_CHANNEL_ID=your_forum_channel_id
+ *   GUILD_ID=your_guild_id
+ *   CASTING_FORUM_CHANNEL_ID=your_casting_calls_forum_channel_id
+ *   CREW_FORUM_CHANNEL_ID=your_crew_calls_forum_channel_id
  *
- * Run once to register commands:
+ * Deploy commands once:
  *   node casting-call-bot.js --deploy
  *
- * Then run normally:
+ * Run:
  *   node casting-call-bot.js
  */
 
@@ -34,39 +36,49 @@ const {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  StringSelectMenuBuilder,
+  StringSelectMenuOptionBuilder,
   Events,
 } = require("discord.js");
 
-// ─── Config ──────────────────────────────────────────────────────────────────
+// ─── Config ───────────────────────────────────────────────────────────────────
 
-const { BOT_TOKEN, CLIENT_ID, GUILD_ID, FORUM_CHANNEL_ID } = process.env;
+const {
+  BOT_TOKEN,
+  CLIENT_ID,
+  GUILD_ID,
+  CASTING_FORUM_CHANNEL_ID,
+  CREW_FORUM_CHANNEL_ID,
+} = process.env;
 
-const COMMAND_NAME = "new-casting-call";
-const MODAL_ID = "casting_call_modal";
-const BUTTON_ID = "open_casting_call_modal";
+// Custom ID constants — gig type is appended as a suffix: e.g. "tag_select:cast"
+const GIG_TYPE_BUTTON_PREFIX = "gig_type:";   // gig_type:cast | gig_type:crew
+const TAG_SELECT_PREFIX      = "tag_select:";  // tag_select:cast:TAG_ID (select menu)
+const MODAL_PREFIX           = "gig_modal:";   // gig_modal:cast:TAG_ID
 
-// ─── Slash command definition ─────────────────────────────────────────────────
+// ─── Slash commands ───────────────────────────────────────────────────────────
 
 const commands = [
   new SlashCommandBuilder()
-    .setName(COMMAND_NAME)
+    .setName("new-gig")
+    .setDescription("Post a new casting call or crew call")
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("new-casting-call")
     .setDescription("Post a new casting call to #casting-calls")
     .toJSON(),
 ];
 
-// ─── Deploy commands (run with --deploy flag) ─────────────────────────────────
+// ─── Deploy (node casting-call-bot.js --deploy) ───────────────────────────────
 
 if (process.argv.includes("--deploy")) {
   const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
-
   (async () => {
     try {
       console.log("Registering slash commands…");
-
       const route = GUILD_ID
         ? Routes.applicationGuildCommands(CLIENT_ID, GUILD_ID)
         : Routes.applicationCommands(CLIENT_ID);
-
       await rest.put(route, { body: commands });
       console.log("✅ Commands registered.");
     } catch (err) {
@@ -74,97 +86,209 @@ if (process.argv.includes("--deploy")) {
     }
     process.exit(0);
   })();
-
-  return; // Don't start the client during deploy
+  return;
 }
 
-// ─── Build the modal ──────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function buildCastingCallModal() {
+function forumChannelId(gigType) {
+  return gigType === "crew" ? CREW_FORUM_CHANNEL_ID : CASTING_FORUM_CHANNEL_ID;
+}
+
+function gigLabel(gigType) {
+  return gigType === "crew" ? "Crew Call" : "Casting Call";
+}
+
+// ─── Modals ───────────────────────────────────────────────────────────────────
+
+function buildCastingModal(tagId = "none") {
   const modal = new ModalBuilder()
-    .setCustomId(MODAL_ID)
+    .setCustomId(`${MODAL_PREFIX}cast:${tagId}`)
     .setTitle("New Casting Call");
 
-  const projectTitle = new TextInputBuilder()
-    .setCustomId("project_title")
-    .setLabel("Project Title")
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder("e.g. Indie Short Film — 'The Last Station'")
-    .setRequired(true)
-    .setMaxLength(100);
-
-  const compensation = new TextInputBuilder()
-    .setCustomId("compensation")
-    .setLabel("Compensation")
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder("e.g. Paid — $200/day, Copy/Credit, Deferred, TBD")
-    .setRequired(true)
-    .setMaxLength(200);
-
-  const locationAndDates = new TextInputBuilder()
-    .setCustomId("location_and_dates")
-    .setLabel("Location & Dates")
-    .setStyle(TextInputStyle.Short)
-    .setPlaceholder("e.g. Los Angeles, CA | Auditions: Aug 5–6, Shoot: Aug 20–24")
-    .setRequired(true)
-    .setMaxLength(300);
-
-  const characterBreakdown = new TextInputBuilder()
-    .setCustomId("character_breakdown")
-    .setLabel("Character Breakdown")
-    .setStyle(TextInputStyle.Paragraph)
-    .setPlaceholder(
-      "List each role with age range, gender, ethnicity, and a brief description."
-    )
-    .setRequired(true)
-    .setMaxLength(1800);
-
-  const submissionInstructions = new TextInputBuilder()
-    .setCustomId("submission_instructions")
-    .setLabel("Submission Instructions")
-    .setStyle(TextInputStyle.Paragraph)
-    .setPlaceholder(
-      "How to apply: email, self-tape specs, deadline, contact info, etc."
-    )
-    .setRequired(true)
-    .setMaxLength(1000);
-
-  // Each TextInput must be in its own ActionRow (Discord's modal constraint)
   modal.addComponents(
-    new ActionRowBuilder().addComponents(projectTitle),
-    new ActionRowBuilder().addComponents(compensation),
-    new ActionRowBuilder().addComponents(locationAndDates),
-    new ActionRowBuilder().addComponents(characterBreakdown),
-    new ActionRowBuilder().addComponents(submissionInstructions)
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("project_title")
+        .setLabel("Project Title")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("e.g. Indie Short Film — 'The Last Station'")
+        .setRequired(true)
+        .setMaxLength(100)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("compensation")
+        .setLabel("Compensation")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("e.g. Paid — $200/day, Copy/Credit, Deferred")
+        .setRequired(true)
+        .setMaxLength(200)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("location_and_dates")
+        .setLabel("Location & Dates")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("e.g. OKC | Auditions: Aug 5–6, Shoot: Aug 20–24")
+        .setRequired(true)
+        .setMaxLength(300)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("character_breakdown")
+        .setLabel("Character Breakdown")
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder("List each role: age range, gender, ethnicity, description.")
+        .setRequired(true)
+        .setMaxLength(1800)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("submission_instructions")
+        .setLabel("Submission Instructions")
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder("How to apply: email, self-tape specs, deadline, etc.")
+        .setRequired(true)
+        .setMaxLength(1000)
+    )
   );
 
   return modal;
 }
 
-// ─── Format the forum post body ───────────────────────────────────────────────
+function buildCrewModal(tagId = "none") {
+  const modal = new ModalBuilder()
+    .setCustomId(`${MODAL_PREFIX}crew:${tagId}`)
+    .setTitle("New Crew Call");
 
-function formatPostBody(fields) {
-  const { compensation, location_and_dates, character_breakdown, submission_instructions } =
-    fields;
+  modal.addComponents(
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("project_title")
+        .setLabel("Project Title")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("e.g. Indie Feature — 'Red Dirt'")
+        .setRequired(true)
+        .setMaxLength(100)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("compensation")
+        .setLabel("Compensation")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("e.g. Paid — $250/day, Deferred, Copy/Credit")
+        .setRequired(true)
+        .setMaxLength(200)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("location_and_dates")
+        .setLabel("Location & Dates")
+        .setStyle(TextInputStyle.Short)
+        .setPlaceholder("e.g. Tulsa, OK | Shoot: Sept 10–18, 2026")
+        .setRequired(true)
+        .setMaxLength(300)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("positions_needed")
+        .setLabel("Positions Needed")
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder("List each role and a brief description, e.g:\nDP — experience with narrative shorts\nSound Mixer — own gear preferred")
+        .setRequired(true)
+        .setMaxLength(1800)
+    ),
+    new ActionRowBuilder().addComponents(
+      new TextInputBuilder()
+        .setCustomId("submission_instructions")
+        .setLabel("Submission Instructions")
+        .setStyle(TextInputStyle.Paragraph)
+        .setPlaceholder("How to apply: email, portfolio/reel link, deadline, etc.")
+        .setRequired(true)
+        .setMaxLength(1000)
+    )
+  );
 
+  return modal;
+}
+
+// ─── Post formatters ──────────────────────────────────────────────────────────
+
+function formatCastingPost(fields) {
   return [
     `## 🎬 Casting Call`,
     ``,
     `**💰 Compensation**`,
-    compensation,
+    fields.compensation,
     ``,
     `**📍 Location & Dates**`,
-    location_and_dates,
+    fields.location_and_dates,
     ``,
     `**🎭 Character Breakdown**`,
-    character_breakdown,
+    fields.character_breakdown,
     ``,
     `**📬 How to Submit**`,
-    submission_instructions,
+    fields.submission_instructions,
     ``,
     `---`,
     `*Posted by ${fields.postedBy} via /new-casting-call*`,
   ].join("\n");
+}
+
+function formatCrewPost(fields) {
+  return [
+    `## 🎥 Crew Call`,
+    ``,
+    `**💰 Compensation**`,
+    fields.compensation,
+    ``,
+    `**📍 Location & Dates**`,
+    fields.location_and_dates,
+    ``,
+    `**🛠️ Positions Needed**`,
+    fields.positions_needed,
+    ``,
+    `**📬 How to Apply**`,
+    fields.submission_instructions,
+    ``,
+    `---`,
+    `*Posted by ${fields.postedBy} via /new-gig*`,
+  ].join("\n");
+}
+
+// ─── Tag picker ───────────────────────────────────────────────────────────────
+
+async function showTagPicker(interaction, gigType) {
+  const channelId = forumChannelId(gigType);
+  const forumChannel = await client.channels.fetch(channelId);
+
+  if (!forumChannel?.availableTags?.length) {
+    // No tags — go straight to modal
+    const modal = gigType === "crew"
+      ? buildCrewModal("none")
+      : buildCastingModal("none");
+    await interaction.showModal(modal);
+    return;
+  }
+
+  const options = forumChannel.availableTags.map((tag) =>
+    new StringSelectMenuOptionBuilder()
+      .setLabel(tag.name)
+      .setValue(`${gigType}:${tag.id}`)
+      .setEmoji(tag.emoji?.name ?? "🏷️")
+  );
+
+  const select = new StringSelectMenuBuilder()
+    .setCustomId(`${TAG_SELECT_PREFIX}${gigType}`)
+    .setPlaceholder(`Choose a category for this ${gigLabel(gigType)}…`)
+    .addOptions(options);
+
+  await interaction.reply({
+    content: `**Step 2 of 3** — Pick a tag for your ${gigLabel(gigType)} post:`,
+    components: [new ActionRowBuilder().addComponents(select)],
+    ephemeral: true,
+  });
 }
 
 // ─── Client ───────────────────────────────────────────────────────────────────
@@ -174,7 +298,6 @@ const client = new Client({ intents: [GatewayIntentBits.Guilds] });
 client.once(Events.ClientReady, async (c) => {
   console.log(`✅ Logged in as ${c.user.tag}`);
 
-  // Register slash commands on startup
   try {
     const rest = new REST({ version: "10" }).setToken(BOT_TOKEN);
     const route = GUILD_ID
@@ -190,59 +313,111 @@ client.once(Events.ClientReady, async (c) => {
 // ─── Interaction handler ──────────────────────────────────────────────────────
 
 client.on(Events.InteractionCreate, async (interaction) => {
-  // 1. Slash command OR button → open the modal
-  if (
-    (interaction.isChatInputCommand() && interaction.commandName === COMMAND_NAME) ||
-    (interaction.isButton() && interaction.customId === BUTTON_ID)
-  ) {
-    await interaction.showModal(buildCastingCallModal());
+
+  // ── /new-gig → show Cast or Crew buttons ───────────────────────────────────
+  if (interaction.isChatInputCommand() && interaction.commandName === "new-gig") {
+    const castButton = new ButtonBuilder()
+      .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`)
+      .setLabel("🎭 Casting Call")
+      .setStyle(ButtonStyle.Primary);
+
+    const crewButton = new ButtonBuilder()
+      .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}crew`)
+      .setLabel("🎥 Crew Call")
+      .setStyle(ButtonStyle.Secondary);
+
+    await interaction.reply({
+      content: "**Step 1 of 3** — What type of gig are you posting?",
+      components: [new ActionRowBuilder().addComponents(castButton, crewButton)],
+      ephemeral: true,
+    });
     return;
   }
 
-  // 2. Modal submit → create forum thread
-  if (interaction.isModalSubmit() && interaction.customId === MODAL_ID) {
+  // ── /new-casting-call → skip straight to casting tag picker ────────────────
+  if (interaction.isChatInputCommand() && interaction.commandName === "new-casting-call") {
+    await showTagPicker(interaction, "cast");
+    return;
+  }
+
+  // ── Cast/Crew button → show tag picker for chosen channel ──────────────────
+  if (interaction.isButton() && interaction.customId.startsWith(GIG_TYPE_BUTTON_PREFIX)) {
+    const gigType = interaction.customId.replace(GIG_TYPE_BUTTON_PREFIX, "");
+    await interaction.update({
+      content: `Got it — posting a **${gigLabel(gigType)}**. One more step…`,
+      components: [],
+    });
+    await showTagPicker(interaction, gigType);
+    return;
+  }
+
+  // ── Tag selected → open the right modal ────────────────────────────────────
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith(TAG_SELECT_PREFIX)) {
+    const gigType = interaction.customId.replace(TAG_SELECT_PREFIX, "");
+    // value is encoded as "gigType:tagId"
+    const tagId = interaction.values[0].split(":")[1];
+    const modal = gigType === "crew"
+      ? buildCrewModal(tagId)
+      : buildCastingModal(tagId);
+    await interaction.showModal(modal);
+    return;
+  }
+
+  // ── Modal submit → create forum thread ─────────────────────────────────────
+  if (interaction.isModalSubmit() && interaction.customId.startsWith(MODAL_PREFIX)) {
     await interaction.deferReply({ ephemeral: true });
 
+    // custom_id format: "gig_modal:cast:TAG_ID" or "gig_modal:crew:TAG_ID"
+    const [, gigType, tagId] = interaction.customId.split(":");
     const get = (id) => interaction.fields.getTextInputValue(id);
+    const postedBy = interaction.user.toString();
 
-    const projectTitle           = get("project_title");
-    const compensation           = get("compensation");
-    const locationAndDates       = get("location_and_dates");
-    const characterBreakdown     = get("character_breakdown");
-    const submissionInstructions = get("submission_instructions");
+    let postBody;
+    if (gigType === "crew") {
+      postBody = formatCrewPost({
+        compensation:            get("compensation"),
+        location_and_dates:      get("location_and_dates"),
+        positions_needed:        get("positions_needed"),
+        submission_instructions: get("submission_instructions"),
+        postedBy,
+      });
+    } else {
+      postBody = formatCastingPost({
+        compensation:            get("compensation"),
+        location_and_dates:      get("location_and_dates"),
+        character_breakdown:     get("character_breakdown"),
+        submission_instructions: get("submission_instructions"),
+        postedBy,
+      });
+    }
 
-    const postedBy = interaction.user.toString(); // mention
-
-    const postBody = formatPostBody({
-      compensation,
-      location_and_dates: locationAndDates,
-      character_breakdown: characterBreakdown,
-      submission_instructions: submissionInstructions,
-      postedBy,
-    });
+    const projectTitle = get("project_title");
 
     try {
-      const forumChannel = await client.channels.fetch(FORUM_CHANNEL_ID);
+      const forumChannel = await client.channels.fetch(forumChannelId(gigType));
 
-      if (!forumChannel || !forumChannel.isThreadOnly()) {
+      if (!forumChannel?.isThreadOnly()) {
         await interaction.editReply({
-          content: "❌ Could not find the casting calls forum channel. Check `FORUM_CHANNEL_ID`.",
+          content: `❌ Could not find the ${gigLabel(gigType)} forum channel. Check your env vars.`,
         });
         return;
       }
 
+      const appliedTags = tagId && tagId !== "none" ? [tagId] : [];
+
       const thread = await forumChannel.threads.create({
         name: projectTitle,
         message: { content: postBody },
+        ...(appliedTags.length > 0 && { appliedTags }),
       });
 
       await interaction.editReply({
-        content: `✅ Casting call posted! → ${thread.url}`,
+        content: `✅ ${gigLabel(gigType)} posted! → ${thread.url}`,
       });
     } catch (err) {
       console.error("Error creating forum thread:", err);
       await interaction.editReply({
-        content: "❌ Something went wrong while posting. Check the bot's permissions and try again.",
+        content: "❌ Something went wrong. Check the bot's permissions and try again.",
       });
     }
   }
@@ -250,25 +425,17 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 client.login(BOT_TOKEN);
 
-// ─── Utility: export a ready-made button (optional) ──────────────────────────
-// Drop this into any channel message to give users a button alternative.
+// ─── Utility button export ────────────────────────────────────────────────────
+// Send this in any channel to give members a button entry point:
 //
-// Usage in another file:
-//   const { newCastingCallButton } = require('./casting-call-bot');
-//
-// Or just copy-paste the snippet below wherever you send the button message:
-//
-//   const row = new ActionRowBuilder().addComponents(
-//     new ButtonBuilder()
-//       .setCustomId('open_casting_call_modal')
-//       .setLabel('🎬 New Casting Call')
-//       .setStyle(ButtonStyle.Primary)
-//   );
-//   await channel.send({ content: 'Ready to post?', components: [row] });
+//   const { newGigButton } = require('./casting-call-bot');
+//   await channel.send({ content: 'Post a gig:', components: [
+//     new ActionRowBuilder().addComponents(newGigButton)
+//   ]});
 
 module.exports = {
-  newCastingCallButton: new ButtonBuilder()
-    .setCustomId(BUTTON_ID)
-    .setLabel("🎬 New Casting Call")
+  newGigButton: new ButtonBuilder()
+    .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`) // change to 'crew' if needed
+    .setLabel("🎬 Post a Gig")
     .setStyle(ButtonStyle.Primary),
 };
