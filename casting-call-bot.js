@@ -50,6 +50,7 @@ const {
   GUILD_ID,
   CASTING_FORUM_CHANNEL_ID,
   CREW_FORUM_CHANNEL_ID,
+  MEMBER_ROLE_ID,
 } = process.env;
 
 // Custom ID constants — gig type is appended as a suffix: e.g. "tag_select:cast"
@@ -57,6 +58,7 @@ const GIG_TYPE_BUTTON_PREFIX = "gig_type:";   // gig_type:cast | gig_type:crew
 const TAG_SELECT_PREFIX      = "tag_select:";  // tag_select:cast:TAG_ID (select menu)
 const MODAL_PREFIX           = "gig_modal:";   // gig_modal:cast:TAG_ID
 const OPEN_GIG_PICKER_ID     = "open_gig_picker"; // persistent channel button
+const VERIFY_BUTTON_ID       = "verify_member";    // #welcome-and-rules agree button
 
 // ─── Slash commands ───────────────────────────────────────────────────────────
 
@@ -68,6 +70,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("post-gig-button")
     .setDescription("Post the permanent 'Submit a Gig' button in this channel (admin only)")
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("post-verify-button")
+    .setDescription("Post the 'I Agree' verification button in this channel (admin only, run once)")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("new-casting-call")
@@ -299,7 +305,7 @@ async function showTagPicker(interaction, gigType) {
 
 // ─── Client ───────────────────────────────────────────────────────────────────
 
-const client = new Client({ intents: [GatewayIntentBits.Guilds] });
+const client = new Client({ intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMembers] });
 
 client.once(Events.ClientReady, async (c) => {
   console.log(`✅ Logged in as ${c.user.tag}`);
@@ -319,6 +325,53 @@ client.once(Events.ClientReady, async (c) => {
 // ─── Interaction handler ──────────────────────────────────────────────────────
 
 client.on(Events.InteractionCreate, async (interaction) => {
+
+  // ── /post-verify-button → post the I Agree button in this channel ──────────
+  if (interaction.isChatInputCommand() && interaction.commandName === "post-verify-button") {
+    const verifyButton = new ButtonBuilder()
+      .setCustomId(VERIFY_BUTTON_ID)
+      .setLabel("I Have Read and Agree to the Rules")
+      .setStyle(ButtonStyle.Success);
+
+    await interaction.channel.send({
+      content: "## Welcome to Oklahoma Filmmakers & Actors\nPlease read the rules above, then click below to gain access to the rest of the server.",
+      components: [new ActionRowBuilder().addComponents(verifyButton)],
+    });
+
+    await interaction.reply({
+      content: "✅ Verification button posted. Pin that message so it stays at the top.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // ── Verify button click → assign Member role ────────────────────────────────
+  if (interaction.isButton() && interaction.customId === VERIFY_BUTTON_ID) {
+    const member = interaction.member;
+
+    if (member.roles.cache.has(MEMBER_ROLE_ID)) {
+      await interaction.reply({
+        content: "You already have access — welcome back!",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    try {
+      await member.roles.add(MEMBER_ROLE_ID);
+      await interaction.reply({
+        content: "Welcome to the server — you now have full access. Head to **#introductions** and say hello, and check **#roles** to set your tags.",
+        flags: MessageFlags.Ephemeral,
+      });
+    } catch (err) {
+      console.error("Failed to assign Member role:", err);
+      await interaction.reply({
+        content: "Something went wrong assigning your role. Please contact an admin.",
+        flags: MessageFlags.Ephemeral,
+      });
+    }
+    return;
+  }
 
   // ── /new-gig → show Cast or Crew buttons ───────────────────────────────────
   if (interaction.isChatInputCommand() && interaction.commandName === "new-gig") {
