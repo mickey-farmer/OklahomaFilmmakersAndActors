@@ -38,6 +38,7 @@ const {
   ButtonStyle,
   StringSelectMenuBuilder,
   StringSelectMenuOptionBuilder,
+  MessageFlags,
   Events,
 } = require("discord.js");
 
@@ -195,7 +196,7 @@ function buildCrewModal(tagId = "none") {
         .setCustomId("positions_needed")
         .setLabel("Positions Needed")
         .setStyle(TextInputStyle.Paragraph)
-        .setPlaceholder("List each role and a brief description, e.g:\nDP — experience with narrative shorts\nSound Mixer — own gear preferred")
+        .setPlaceholder("e.g. DP, Sound Mixer, Gaffer — include experience/gear needs")
         .setRequired(true)
         .setMaxLength(1800)
     ),
@@ -287,7 +288,7 @@ async function showTagPicker(interaction, gigType) {
   await interaction.reply({
     content: `**Step 2 of 3** — Pick a tag for your ${gigLabel(gigType)} post:`,
     components: [new ActionRowBuilder().addComponents(select)],
-    ephemeral: true,
+    flags: MessageFlags.Ephemeral,
   });
 }
 
@@ -329,7 +330,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     await interaction.reply({
       content: "**Step 1 of 3** — What type of gig are you posting?",
       components: [new ActionRowBuilder().addComponents(castButton, crewButton)],
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
     return;
   }
@@ -365,7 +366,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   // ── Modal submit → create forum thread ─────────────────────────────────────
   if (interaction.isModalSubmit() && interaction.customId.startsWith(MODAL_PREFIX)) {
-    await interaction.deferReply({ ephemeral: true });
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
     // custom_id format: "gig_modal:cast:TAG_ID" or "gig_modal:crew:TAG_ID"
     const [, gigType, tagId] = interaction.customId.split(":");
