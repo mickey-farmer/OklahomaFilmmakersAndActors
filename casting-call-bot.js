@@ -56,6 +56,7 @@ const {
 const GIG_TYPE_BUTTON_PREFIX = "gig_type:";   // gig_type:cast | gig_type:crew
 const TAG_SELECT_PREFIX      = "tag_select:";  // tag_select:cast:TAG_ID (select menu)
 const MODAL_PREFIX           = "gig_modal:";   // gig_modal:cast:TAG_ID
+const OPEN_GIG_PICKER_ID     = "open_gig_picker"; // persistent channel button
 
 // ─── Slash commands ───────────────────────────────────────────────────────────
 
@@ -63,6 +64,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("new-gig")
     .setDescription("Post a new casting call or crew call")
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("post-gig-button")
+    .setDescription("Post the permanent 'Submit a Gig' button in this channel (admin only)")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("new-casting-call")
@@ -317,6 +322,45 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   // ── /new-gig → show Cast or Crew buttons ───────────────────────────────────
   if (interaction.isChatInputCommand() && interaction.commandName === "new-gig") {
+    const castButton = new ButtonBuilder()
+      .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`)
+      .setLabel("🎭 Casting Call")
+      .setStyle(ButtonStyle.Primary);
+
+    const crewButton = new ButtonBuilder()
+      .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}crew`)
+      .setLabel("🎥 Crew Call")
+      .setStyle(ButtonStyle.Secondary);
+
+    await interaction.reply({
+      content: "**Step 1 of 3** — What type of gig are you posting?",
+      components: [new ActionRowBuilder().addComponents(castButton, crewButton)],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // ── /post-gig-button → post permanent button message in this channel ───────
+  if (interaction.isChatInputCommand() && interaction.commandName === "post-gig-button") {
+    const button = new ButtonBuilder()
+      .setCustomId(OPEN_GIG_PICKER_ID)
+      .setLabel("🎬 Submit a Gig")
+      .setStyle(ButtonStyle.Primary);
+
+    await interaction.channel.send({
+      content: "## 📋 Submit a Gig\nPosting a casting call or crew call? Click below to get started.",
+      components: [new ActionRowBuilder().addComponents(button)],
+    });
+
+    await interaction.reply({
+      content: "✅ Button posted!",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // ── Persistent channel button → show Cast/Crew picker ─────────────────────
+  if (interaction.isButton() && interaction.customId === OPEN_GIG_PICKER_ID) {
     const castButton = new ButtonBuilder()
       .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`)
       .setLabel("🎭 Casting Call")
