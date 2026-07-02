@@ -345,7 +345,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isChatInputCommand() && interaction.commandName === "post-verify-button") {
     const verifyButton = new ButtonBuilder()
       .setCustomId(VERIFY_BUTTON_ID)
-      .setLabel("I Have Read and Agree to the Rules")
+      .setLabel("I have read and agree to the rules")
       .setStyle(ButtonStyle.Success);
 
     await interaction.channel.send({
@@ -384,7 +384,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     try {
       await member.roles.add(memberRoleId);
       await interaction.reply({
-        content: "Welcome to the server — you now have full access. Head to **#introductions** and say hello, and check **#roles** to set your tags.",
+        content: "Welcome to the server — you now have full access. Head to **#introductions** and say hello, and don't forget to hop into **#roles** to choose your tags!",
         flags: MessageFlags.Ephemeral,
       });
 
