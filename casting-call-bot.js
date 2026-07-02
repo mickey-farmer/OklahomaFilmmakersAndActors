@@ -560,4 +560,86 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   // ── Cast/Crew button → show tag picker for chosen channel ──────────────────
   if (interaction.isButton() && interaction.customId.startsWith(GIG_TYPE_BUTTON_PREFIX)) {
-    const gigType = interaction.customId.replace(GIG_TYPE_BUTTON_
+    const gigType = interaction.customId.replace(GIG_TYPE_BUTTON_PREFIX, "");
+    await showTagPicker(interaction, gigType);
+    return;
+  }
+
+  // ── Tag selected → open the right modal ────────────────────────────────────
+  if (interaction.isStringSelectMenu() && interaction.customId.startsWith(TAG_SELECT_PREFIX)) {
+    const gigType = interaction.customId.replace(TAG_SELECT_PREFIX, "");
+    const tagId = interaction.values[0].split(":")[1];
+    const modal = gigType === "crew"
+      ? buildCrewModal(tagId)
+      : buildCastingModal(tagId);
+    await interaction.showModal(modal);
+    return;
+  }
+
+  // ── Modal submit → create forum thread ─────────────────────────────────────
+  if (interaction.isModalSubmit() && interaction.customId.startsWith(MODAL_PREFIX)) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+
+    const [, gigType, tagId] = interaction.customId.split(":");
+    const get = (id) => interaction.fields.getTextInputValue(id);
+    const postedBy = interaction.user.toString();
+
+    let postBody;
+    if (gigType === "crew") {
+      postBody = formatCrewPost({
+        compensation:            get("compensation"),
+        location_and_dates:      get("location_and_dates"),
+        positions_needed:        get("positions_needed"),
+        submission_instructions: get("submission_instructions"),
+        postedBy,
+      });
+    } else {
+      postBody = formatCastingPost({
+        compensation:            get("compensation"),
+        location_and_dates:      get("location_and_dates"),
+        character_breakdown:     get("character_breakdown"),
+        submission_instructions: get("submission_instructions"),
+        postedBy,
+      });
+    }
+
+    const projectTitle = get("project_title");
+
+    try {
+      const forumChannel = await client.channels.fetch(forumChannelId(gigType));
+
+      if (!forumChannel?.isThreadOnly()) {
+        await interaction.editReply({
+          content: `❌ Could not find the ${gigLabel(gigType)} forum channel. Check your env vars.`,
+        });
+        return;
+      }
+
+      const appliedTags = tagId && tagId !== "none" ? [tagId] : [];
+
+      const thread = await forumChannel.threads.create({
+        name: projectTitle,
+        message: { content: postBody },
+        ...(appliedTags.length > 0 && { appliedTags }),
+      });
+
+      await interaction.editReply({
+        content: `✅ ${gigLabel(gigType)} posted! → ${thread.url}`,
+      });
+    } catch (err) {
+      console.error("Error creating forum thread:", err);
+      await interaction.editReply({
+        content: "❌ Something went wrong. Check the bot's permissions and try again.",
+      });
+    }
+  }
+});
+
+client.login(BOT_TOKEN);
+
+module.exports = {
+  newGigButton: new ButtonBuilder()
+    .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`)
+    .setLabel("🎬 Post a Gig")
+    .setStyle(ButtonStyle.Primary),
+};
