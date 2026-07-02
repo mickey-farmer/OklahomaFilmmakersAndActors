@@ -2,27 +2,27 @@
  * Discord.js v14 — OF&A Gig Bot
  *
  * Commands:
- *   /new-gig          → choose Cast or Crew → tag picker → modal → forum post
- *   /new-casting-call → shortcut directly to casting call flow
- *   /post-verify-button → post verification landing button
- *   /post-roles-button → post role select dropdowns in #roles
+ * /new-gig          → choose Cast or Crew → tag picker → modal → forum post
+ * /new-casting-call → shortcut directly to casting call flow
+ * /post-verify-button → post verification landing button
+ * /post-roles-button → post role select dropdowns in #roles
  *
  * Setup:
- *   npm install discord.js dotenv
+ * npm install discord.js dotenv
  *
  * .env:
- *   BOT_TOKEN=your_bot_token
- *   CLIENT_ID=your_application_id
- *   GUILD_ID=your_guild_id
- *   CASTING_FORUM_CHANNEL_ID=your_casting_calls_forum_channel_id
- *   CREW_FORUM_CHANNEL_ID=your_crew_calls_forum_channel_id
- *   ROLE_MAP={"member":"ID","actor":"ID",...}
+ * BOT_TOKEN=your_bot_token
+ * CLIENT_ID=your_application_id
+ * GUILD_ID=your_guild_id
+ * CASTING_FORUM_CHANNEL_ID=your_casting_calls_forum_channel_id
+ * CREW_FORUM_CHANNEL_ID=your_crew_calls_forum_channel_id
+ * ROLE_MAP={"member":"ID","actor":"ID",...}
  *
  * Deploy commands once:
- *   node casting-call-bot.js --deploy
+ * node casting-call-bot.js --deploy
  *
  * Run:
- *   node casting-call-bot.js
+ * node casting-call-bot.js
  */
 
 require("dotenv").config();
@@ -387,6 +387,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         content: "Welcome to the server — you now have full access. Head to **#introductions** and say hello, and check **#roles** to set your tags.",
         flags: MessageFlags.Ephemeral,
       });
+
+      // ─── OPTION 1: LOG TO ADMIN CHANNEL ───
+      const logChannel = interaction.guild.channels.cache.find(ch => ch.name === 'moderator-only');
+      if (logChannel) {
+        await logChannel.send({
+          content: `✅ **${interaction.user.tag}** (ID: \`${interaction.user.id}\`) has accepted the server rules and has been given the **Member** role.`
+        });
+      }
     } catch (err) {
       console.error("Failed to assign Member role:", err);
       await interaction.reply({
@@ -552,86 +560,4 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
   // ── Cast/Crew button → show tag picker for chosen channel ──────────────────
   if (interaction.isButton() && interaction.customId.startsWith(GIG_TYPE_BUTTON_PREFIX)) {
-    const gigType = interaction.customId.replace(GIG_TYPE_BUTTON_PREFIX, "");
-    await showTagPicker(interaction, gigType);
-    return;
-  }
-
-  // ── Tag selected → open the right modal ────────────────────────────────────
-  if (interaction.isStringSelectMenu() && interaction.customId.startsWith(TAG_SELECT_PREFIX)) {
-    const gigType = interaction.customId.replace(TAG_SELECT_PREFIX, "");
-    const tagId = interaction.values[0].split(":")[1];
-    const modal = gigType === "crew"
-      ? buildCrewModal(tagId)
-      : buildCastingModal(tagId);
-    await interaction.showModal(modal);
-    return;
-  }
-
-  // ── Modal submit → create forum thread ─────────────────────────────────────
-  if (interaction.isModalSubmit() && interaction.customId.startsWith(MODAL_PREFIX)) {
-    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-
-    const [, gigType, tagId] = interaction.customId.split(":");
-    const get = (id) => interaction.fields.getTextInputValue(id);
-    const postedBy = interaction.user.toString();
-
-    let postBody;
-    if (gigType === "crew") {
-      postBody = formatCrewPost({
-        compensation:            get("compensation"),
-        location_and_dates:      get("location_and_dates"),
-        positions_needed:        get("positions_needed"),
-        submission_instructions: get("submission_instructions"),
-        postedBy,
-      });
-    } else {
-      postBody = formatCastingPost({
-        compensation:            get("compensation"),
-        location_and_dates:      get("location_and_dates"),
-        character_breakdown:     get("character_breakdown"),
-        submission_instructions: get("submission_instructions"),
-        postedBy,
-      });
-    }
-
-    const projectTitle = get("project_title");
-
-    try {
-      const forumChannel = await client.channels.fetch(forumChannelId(gigType));
-
-      if (!forumChannel?.isThreadOnly()) {
-        await interaction.editReply({
-          content: `❌ Could not find the ${gigLabel(gigType)} forum channel. Check your env vars.`,
-        });
-        return;
-      }
-
-      const appliedTags = tagId && tagId !== "none" ? [tagId] : [];
-
-      const thread = await forumChannel.threads.create({
-        name: projectTitle,
-        message: { content: postBody },
-        ...(appliedTags.length > 0 && { appliedTags }),
-      });
-
-      await interaction.editReply({
-        content: `✅ ${gigLabel(gigType)} posted! → ${thread.url}`,
-      });
-    } catch (err) {
-      console.error("Error creating forum thread:", err);
-      await interaction.editReply({
-        content: "❌ Something went wrong. Check the bot's permissions and try again.",
-      });
-    }
-  }
-});
-
-client.login(BOT_TOKEN);
-
-module.exports = {
-  newGigButton: new ButtonBuilder()
-    .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`)
-    .setLabel("🎬 Post a Gig")
-    .setStyle(ButtonStyle.Primary),
-};
+    const gigType = interaction.customId.replace(GIG_TYPE_BUTTON_
