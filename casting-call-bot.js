@@ -4,6 +4,8 @@
  * Commands:
  *   /new-gig          → choose Cast or Crew → tag picker → modal → forum post
  *   /new-casting-call → shortcut directly to casting call flow
+ *   /post-verify-button → post verification landing button
+ *   /post-roles-button → post role select dropdowns in #roles
  *
  * Setup:
  *   npm install discord.js dotenv
@@ -14,6 +16,7 @@
  *   GUILD_ID=your_guild_id
  *   CASTING_FORUM_CHANNEL_ID=your_casting_calls_forum_channel_id
  *   CREW_FORUM_CHANNEL_ID=your_crew_calls_forum_channel_id
+ *   ROLE_MAP={"member":"ID","actor":"ID",...}
  *
  * Deploy commands once:
  *   node casting-call-bot.js --deploy
@@ -50,8 +53,15 @@ const {
   GUILD_ID,
   CASTING_FORUM_CHANNEL_ID,
   CREW_FORUM_CHANNEL_ID,
-  MEMBER_ROLE_ID,
 } = process.env;
+
+// Parse the role map safely from Render environment variable
+let ROLE_MAP = {};
+try {
+  ROLE_MAP = process.env.ROLE_MAP ? JSON.parse(process.env.ROLE_MAP) : {};
+} catch (err) {
+  console.error("❌ Failed to parse ROLE_MAP JSON environment variable:", err);
+}
 
 // Custom ID constants — gig type is appended as a suffix: e.g. "tag_select:cast"
 const GIG_TYPE_BUTTON_PREFIX = "gig_type:";   // gig_type:cast | gig_type:crew
@@ -59,6 +69,8 @@ const TAG_SELECT_PREFIX      = "tag_select:";  // tag_select:cast:TAG_ID (select
 const MODAL_PREFIX           = "gig_modal:";   // gig_modal:cast:TAG_ID
 const OPEN_GIG_PICKER_ID     = "open_gig_picker"; // persistent channel button
 const VERIFY_BUTTON_ID       = "verify_member";    // #welcome-and-rules agree button
+const CRAFT_SELECT_ID        = "role_select:craft";
+const LOCATION_SELECT_ID     = "role_select:location";
 
 // ─── Slash commands ───────────────────────────────────────────────────────────
 
@@ -74,6 +86,10 @@ const commands = [
   new SlashCommandBuilder()
     .setName("post-verify-button")
     .setDescription("Post the 'I Agree' verification button in this channel (admin only, run once)")
+    .toJSON(),
+  new SlashCommandBuilder()
+    .setName("post-roles-button")
+    .setDescription("Post the role picker menus in this channel (admin only, run once)")
     .toJSON(),
   new SlashCommandBuilder()
     .setName("new-casting-call")
@@ -276,7 +292,6 @@ async function showTagPicker(interaction, gigType) {
   const forumChannel = await client.channels.fetch(channelId);
 
   if (!forumChannel?.availableTags?.length) {
-    // No tags — go straight to modal
     const modal = gigType === "crew"
       ? buildCrewModal("none")
       : buildCastingModal("none");
@@ -345,11 +360,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // ── Verify button click → assign Member role ────────────────────────────────
+  // ── Verify button click → assign Member role from ROLE_MAP ──────────────────
   if (interaction.isButton() && interaction.customId === VERIFY_BUTTON_ID) {
     const member = interaction.member;
+    const memberRoleId = ROLE_MAP["member"];
 
-    if (member.roles.cache.has(MEMBER_ROLE_ID)) {
+    if (!memberRoleId) {
+      await interaction.reply({
+        content: "❌ Member role configuration missing in ROLE_MAP. Please contact an admin.",
+        flags: MessageFlags.Ephemeral,
+      });
+      return;
+    }
+
+    if (member.roles.cache.has(memberRoleId)) {
       await interaction.reply({
         content: "You already have access — welcome back!",
         flags: MessageFlags.Ephemeral,
@@ -358,7 +382,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     }
 
     try {
-      await member.roles.add(MEMBER_ROLE_ID);
+      await member.roles.add(memberRoleId);
       await interaction.reply({
         content: "Welcome to the server — you now have full access. Head to **#introductions** and say hello, and check **#roles** to set your tags.",
         flags: MessageFlags.Ephemeral,
@@ -371,6 +395,94 @@ client.on(Events.InteractionCreate, async (interaction) => {
       });
     }
     return;
+  }
+
+  // ── /post-roles-button → post the dropdown menus in #roles ──────────────────
+  if (interaction.isChatInputCommand() && interaction.commandName === "post-roles-button") {
+    const craftSelect = new StringSelectMenuBuilder()
+      .setCustomId(CRAFT_SELECT_ID)
+      .setPlaceholder("Select your Craft / Roles (Toggles on/off)...")
+      .setMinValues(0)
+      .setMaxValues(1)
+      .addOptions([
+        new StringSelectMenuOptionBuilder().setLabel("Filmmaker").setValue("filmmaker").setEmoji("🎬"),
+        new StringSelectMenuOptionBuilder().setLabel("Actor").setValue("actor").setEmoji("🎭"),
+        new StringSelectMenuOptionBuilder().setLabel("Crew").setValue("crew").setEmoji("🛠️"),
+        new StringSelectMenuOptionBuilder().setLabel("Screenwriter").setValue("writer").setEmoji("✍️"),
+        new StringSelectMenuOptionBuilder().setLabel("Hair & Makeup").setValue("makeup").setEmoji("💄"),
+      ]);
+
+    const locationSelect = new StringSelectMenuBuilder()
+      .setCustomId(LOCATION_SELECT_ID)
+      .setPlaceholder("Select your Location base...")
+      .addOptions([
+        new StringSelectMenuOptionBuilder().setLabel("OKC Area").setValue("okc").setEmoji("🏙️"),
+        new StringSelectMenuOptionBuilder().setLabel("Tulsa Area").setValue("tulsa").setEmoji("🌇"),
+      ]);
+
+    await interaction.channel.send({
+      content: "## 🏷️ Get Your Community Roles\nSelect your craft specialization and where you are based using the dropdown menus below. You can return here to update or toggle your selections at any time!",
+      components: [
+        new ActionRowBuilder().addComponents(craftSelect),
+        new ActionRowBuilder().addComponents(locationSelect)
+      ],
+    });
+
+    await interaction.reply({
+      content: "✅ Role picker menus posted successfully.",
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // ── Handle Craft/Role select menu updates (Toggle style) ────────────────────
+  if (interaction.isStringSelectMenu() && interaction.customId === CRAFT_SELECT_ID) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    const chosenValue = interaction.values[0];
+    const roleId = ROLE_MAP[chosenValue];
+    
+    if (!roleId) {
+      return interaction.editReply({ content: "❌ Role ID configuration missing in configuration. Please alert an admin." });
+    }
+
+    const member = interaction.member;
+    const chosenLabel = interaction.component.options.find(o => o.value === chosenValue).label;
+
+    if (member.roles.cache.has(roleId)) {
+      await member.roles.remove(roleId);
+      return interaction.editReply({ content: `👋 Removed the **${chosenLabel}** role.` });
+    } else {
+      await member.roles.add(roleId);
+      return interaction.editReply({ content: `✅ Added the **${chosenLabel}** role!` });
+    }
+  }
+
+  // ── Handle Location select menu updates (Mutually exclusive style) ──────────
+  if (interaction.isStringSelectMenu() && interaction.customId === LOCATION_SELECT_ID) {
+    await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+    
+    const chosenValue = interaction.values[0];
+    const targetRoleId = ROLE_MAP[chosenValue];
+    
+    if (!targetRoleId) {
+      return interaction.editReply({ content: "❌ Location role configuration missing in setup. Please alert an admin." });
+    }
+
+    const member = interaction.member;
+    const locationKeys = ["okc", "tulsa"];
+    
+    // Remove alternative location roles to keep it mutually exclusive
+    for (const key of locationKeys) {
+      const existingId = ROLE_MAP[key];
+      if (existingId && member.roles.cache.has(existingId) && existingId !== targetRoleId) {
+        await member.roles.remove(existingId);
+      }
+    }
+
+    await member.roles.add(targetRoleId);
+    const chosenLabel = interaction.component.options.find(o => o.value === chosenValue).label;
+    return interaction.editReply({ content: `📍 Your location has been updated to **${chosenLabel}**.` });
   }
 
   // ── /new-gig → show Cast or Crew buttons ───────────────────────────────────
@@ -448,7 +560,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // ── Tag selected → open the right modal ────────────────────────────────────
   if (interaction.isStringSelectMenu() && interaction.customId.startsWith(TAG_SELECT_PREFIX)) {
     const gigType = interaction.customId.replace(TAG_SELECT_PREFIX, "");
-    // value is encoded as "gigType:tagId"
     const tagId = interaction.values[0].split(":")[1];
     const modal = gigType === "crew"
       ? buildCrewModal(tagId)
@@ -461,7 +572,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isModalSubmit() && interaction.customId.startsWith(MODAL_PREFIX)) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
 
-    // custom_id format: "gig_modal:cast:TAG_ID" or "gig_modal:crew:TAG_ID"
     const [, gigType, tagId] = interaction.customId.split(":");
     const get = (id) => interaction.fields.getTextInputValue(id);
     const postedBy = interaction.user.toString();
@@ -519,17 +629,9 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
 client.login(BOT_TOKEN);
 
-// ─── Utility button export ────────────────────────────────────────────────────
-// Send this in any channel to give members a button entry point:
-//
-//   const { newGigButton } = require('./casting-call-bot');
-//   await channel.send({ content: 'Post a gig:', components: [
-//     new ActionRowBuilder().addComponents(newGigButton)
-//   ]});
-
 module.exports = {
   newGigButton: new ButtonBuilder()
-    .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`) // change to 'crew' if needed
+    .setCustomId(`${GIG_TYPE_BUTTON_PREFIX}cast`)
     .setLabel("🎬 Post a Gig")
     .setStyle(ButtonStyle.Primary),
 };
