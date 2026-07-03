@@ -67,10 +67,30 @@ try {
 const GIG_TYPE_BUTTON_PREFIX = "gig_type:";   // gig_type:cast | gig_type:crew
 const TAG_SELECT_PREFIX      = "tag_select:";  // tag_select:cast:TAG_ID (select menu)
 const MODAL_PREFIX           = "gig_modal:";   // gig_modal:cast:TAG_ID
-const OPEN_GIG_PICKER_ID     = "open_gig_picker"; // persistent channel button
-const VERIFY_BUTTON_ID       = "verify_member";    // #welcome-and-rules agree button
-const CRAFT_SELECT_ID        = "role_select:craft";
+const OPEN_GIG_PICKER_ID     = "open_gig_picker";   // persistent channel button
+const VERIFY_BUTTON_ID       = "verify_member";      // #welcome-and-rules agree button
+const ROLE_PICKER_BUTTON_ID  = "open_role_picker";   // persistent #roles button
+const CRAFT_MULTI_SELECT_ID  = "craft_multi_select"; // ephemeral multi-select menu
 const LOCATION_SELECT_ID     = "role_select:location";
+
+// Craft role definitions — keys match ROLE_MAP entries in Render
+const CRAFT_ROLE_OPTIONS = [
+  { label: "Actor",             value: "actor"             },
+  { label: "Casting",           value: "casting"           },
+  { label: "Cinematographer",   value: "cinematographer"   },
+  { label: "Crew",              value: "crew"              },
+  { label: "Director",          value: "director"          },
+  { label: "Editor",            value: "editor"            },
+  { label: "Filmmaker",         value: "filmmaker"         },
+  { label: "Hair & Makeup",     value: "makeup"            },
+  { label: "Lighting",          value: "lighting"          },
+  { label: "Producer",          value: "producer"          },
+  { label: "Props",             value: "props"             },
+  { label: "Screenwriter",      value: "writer"            },
+  { label: "Student Filmmaker", value: "student_filmmaker" },
+  { label: "Stunts",            value: "stunts"            },
+  { label: "Wardrobe",          value: "wardrobe"          },
+];
 
 // ─── Slash commands ───────────────────────────────────────────────────────────
 
@@ -405,70 +425,104 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return;
   }
 
-  // ── /post-roles-button → post the dropdown menus in #roles ──────────────────
+  // ── /post-roles-button → post persistent button in #roles ───────────────────
   if (interaction.isChatInputCommand() && interaction.commandName === "post-roles-button") {
-    const craftSelect = new StringSelectMenuBuilder()
-      .setCustomId(CRAFT_SELECT_ID)
-      .setPlaceholder("Select a role to add or remove it...")
-      .setMinValues(0)
-      .setMaxValues(1)
-      .addOptions([
-        new StringSelectMenuOptionBuilder().setLabel("Stunts").setValue("stunts"),
-        new StringSelectMenuOptionBuilder().setLabel("Director").setValue("director"),
-        new StringSelectMenuOptionBuilder().setLabel("Producer").setValue("producer"),
-        new StringSelectMenuOptionBuilder().setLabel("Wardrobe").setValue("wardrobe"),
-        new StringSelectMenuOptionBuilder().setLabel("Props").setValue("props"),
-        new StringSelectMenuOptionBuilder().setLabel("Cinematographer").setValue("cinematographer"),
-        new StringSelectMenuOptionBuilder().setLabel("Student Filmmaker").setValue("student_filmmaker"),
-        new StringSelectMenuOptionBuilder().setLabel("Casting").setValue("casting"),
-        new StringSelectMenuOptionBuilder().setLabel("Lighting").setValue("lighting"),
-        new StringSelectMenuOptionBuilder().setLabel("Editor").setValue("editor"),
-      ]);
-
-    const locationSelect = new StringSelectMenuBuilder()
-      .setCustomId(LOCATION_SELECT_ID)
-      .setPlaceholder("Select your Location base...")
-      .addOptions([
-        new StringSelectMenuOptionBuilder().setLabel("OKC Area").setValue("okc").setEmoji("🏙️"),
-        new StringSelectMenuOptionBuilder().setLabel("Tulsa Area").setValue("tulsa").setEmoji("🌇"),
-      ]);
+    const button = new ButtonBuilder()
+      .setCustomId(ROLE_PICKER_BUTTON_ID)
+      .setLabel("Manage My Roles")
+      .setStyle(ButtonStyle.Secondary);
 
     await interaction.channel.send({
-      content: "## Community Roles\nSelect your craft and location using the menus below. Selecting a role you already have will remove it. You can update your selections any time.",
-      components: [
-        new ActionRowBuilder().addComponents(craftSelect),
-        new ActionRowBuilder().addComponents(locationSelect)
-      ],
+      content: "## Community Roles\nClick the button below to choose your craft roles. You can come back and update them any time.",
+      components: [new ActionRowBuilder().addComponents(button)],
     });
 
     await interaction.reply({
-      content: "✅ Role picker menus posted successfully.",
+      content: "Role picker posted. Pin that message so it stays visible.",
       flags: MessageFlags.Ephemeral,
     });
     return;
   }
 
-  // ── Handle Craft/Role select menu updates (Toggle style) ────────────────────
-  if (interaction.isStringSelectMenu() && interaction.customId === CRAFT_SELECT_ID) {
+  // ── Role picker button → show ephemeral craft + location selects ─────────────
+  if (interaction.isButton() && interaction.customId === ROLE_PICKER_BUTTON_ID) {
+    const member = interaction.member;
+
+    // Craft multi-select — pre-check roles the member already has
+    const craftOptions = CRAFT_ROLE_OPTIONS.map(({ label, value }) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel(label)
+        .setValue(value)
+        .setDefault(!!ROLE_MAP[value] && member.roles.cache.has(ROLE_MAP[value]))
+    );
+
+    const craftSelect = new StringSelectMenuBuilder()
+      .setCustomId(CRAFT_MULTI_SELECT_ID)
+      .setPlaceholder("Craft — select all that apply")
+      .setMinValues(0)
+      .setMaxValues(CRAFT_ROLE_OPTIONS.length)
+      .addOptions(craftOptions);
+
+    // Location single-select — pre-check current location role
+    const locationOptions = [
+      { label: "Oklahoma City", value: "okc"   },
+      { label: "Tulsa",         value: "tulsa" },
+    ].map(({ label, value }) =>
+      new StringSelectMenuOptionBuilder()
+        .setLabel(label)
+        .setValue(value)
+        .setDefault(!!ROLE_MAP[value] && member.roles.cache.has(ROLE_MAP[value]))
+    );
+
+    const locationSelect = new StringSelectMenuBuilder()
+      .setCustomId(LOCATION_SELECT_ID)
+      .setPlaceholder("Location — select one")
+      .setMinValues(0)
+      .setMaxValues(1)
+      .addOptions(locationOptions);
+
+    await interaction.reply({
+      content: "**Craft roles** — select all that apply. Your current roles are pre-checked.\n**Location** — pick the one closest to you.\n\nEach menu saves independently when you make a selection.",
+      components: [
+        new ActionRowBuilder().addComponents(craftSelect),
+        new ActionRowBuilder().addComponents(locationSelect),
+      ],
+      flags: MessageFlags.Ephemeral,
+    });
+    return;
+  }
+
+  // ── Craft multi-select submit → bulk add/remove ───────────────────────────────
+  if (interaction.isStringSelectMenu() && interaction.customId === CRAFT_MULTI_SELECT_ID) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    
-    const chosenValue = interaction.values[0];
-    const roleId = ROLE_MAP[chosenValue];
-    
-    if (!roleId) {
-      return interaction.editReply({ content: "❌ Role ID configuration missing in configuration. Please alert an admin." });
-    }
 
     const member = interaction.member;
-    const chosenLabel = interaction.component.options.find(o => o.value === chosenValue).label;
+    const selectedValues = new Set(interaction.values);
+    const added = [];
+    const removed = [];
 
-    if (member.roles.cache.has(roleId)) {
-      await member.roles.remove(roleId);
-      return interaction.editReply({ content: `Removed the **${chosenLabel}** role.` });
-    } else {
-      await member.roles.add(roleId);
-      return interaction.editReply({ content: `Added the **${chosenLabel}** role.` });
+    for (const { label, value } of CRAFT_ROLE_OPTIONS) {
+      const roleId = ROLE_MAP[value];
+      if (!roleId) continue; // skip if not configured in ROLE_MAP
+
+      const hasRole = member.roles.cache.has(roleId);
+      const shouldHave = selectedValues.has(value);
+
+      if (shouldHave && !hasRole) {
+        await member.roles.add(roleId);
+        added.push(label);
+      } else if (!shouldHave && hasRole) {
+        await member.roles.remove(roleId);
+        removed.push(label);
+      }
     }
+
+    const lines = [];
+    if (added.length)   lines.push(`Added: ${added.join(", ")}`);
+    if (removed.length) lines.push(`Removed: ${removed.join(", ")}`);
+    const summary = lines.length ? lines.join("\n") : "No changes made.";
+
+    return interaction.editReply({ content: summary });
   }
 
   // ── Handle Location select menu updates (Mutually exclusive style) ──────────
