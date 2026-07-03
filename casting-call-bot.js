@@ -464,15 +464,15 @@ client.on(Events.InteractionCreate, async (interaction) => {
       .addOptions(craftOptions);
 
     // Location single-select — pre-check current location role
+    const hasOkc   = !!ROLE_MAP["okc"]   && member.roles.cache.has(ROLE_MAP["okc"]);
+    const hasTulsa = !!ROLE_MAP["tulsa"] && member.roles.cache.has(ROLE_MAP["tulsa"]);
+    const hasLocation = hasOkc || hasTulsa;
+
     const locationOptions = [
-      { label: "Oklahoma City", value: "okc"   },
-      { label: "Tulsa",         value: "tulsa" },
-    ].map(({ label, value }) =>
-      new StringSelectMenuOptionBuilder()
-        .setLabel(label)
-        .setValue(value)
-        .setDefault(!!ROLE_MAP[value] && member.roles.cache.has(ROLE_MAP[value]))
-    );
+      new StringSelectMenuOptionBuilder().setLabel("Oklahoma City").setValue("okc").setDefault(hasOkc),
+      new StringSelectMenuOptionBuilder().setLabel("Tulsa").setValue("tulsa").setDefault(hasTulsa),
+      new StringSelectMenuOptionBuilder().setLabel("None / Remove location").setValue("none").setDefault(!hasLocation),
+    ];
 
     const locationSelect = new StringSelectMenuBuilder()
       .setCustomId(LOCATION_SELECT_ID)
@@ -525,26 +525,30 @@ client.on(Events.InteractionCreate, async (interaction) => {
     return interaction.editReply({ content: summary });
   }
 
-  // ── Handle Location select menu updates (Mutually exclusive style) ──────────
+  // ── Handle Location select menu updates ─────────────────────────────────────
   if (interaction.isStringSelectMenu() && interaction.customId === LOCATION_SELECT_ID) {
     await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-    
-    const chosenValue = interaction.values[0];
-    const targetRoleId = ROLE_MAP[chosenValue];
-    
-    if (!targetRoleId) {
-      return interaction.editReply({ content: "❌ Location role configuration missing in setup. Please alert an admin." });
-    }
 
+    const chosenValue = interaction.values[0];
     const member = interaction.member;
     const locationKeys = ["okc", "tulsa"];
-    
-    // Remove alternative location roles to keep it mutually exclusive
+
+    // Always remove all location roles first
     for (const key of locationKeys) {
       const existingId = ROLE_MAP[key];
-      if (existingId && member.roles.cache.has(existingId) && existingId !== targetRoleId) {
+      if (existingId && member.roles.cache.has(existingId)) {
         await member.roles.remove(existingId);
       }
+    }
+
+    // If "none" was selected, we're done — all location roles already removed
+    if (chosenValue === "none") {
+      return interaction.editReply({ content: "Location role removed." });
+    }
+
+    const targetRoleId = ROLE_MAP[chosenValue];
+    if (!targetRoleId) {
+      return interaction.editReply({ content: "Location role ID missing in configuration. Please contact an admin." });
     }
 
     await member.roles.add(targetRoleId);
