@@ -409,15 +409,20 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isChatInputCommand() && interaction.commandName === "post-roles-button") {
     const craftSelect = new StringSelectMenuBuilder()
       .setCustomId(CRAFT_SELECT_ID)
-      .setPlaceholder("Select your Craft / Roles (Toggles on/off)...")
+      .setPlaceholder("Select a role to add or remove it...")
       .setMinValues(0)
       .setMaxValues(1)
       .addOptions([
-        new StringSelectMenuOptionBuilder().setLabel("Filmmaker").setValue("filmmaker").setEmoji("🎬"),
-        new StringSelectMenuOptionBuilder().setLabel("Actor").setValue("actor").setEmoji("🎭"),
-        new StringSelectMenuOptionBuilder().setLabel("Crew").setValue("crew").setEmoji("🛠️"),
-        new StringSelectMenuOptionBuilder().setLabel("Screenwriter").setValue("writer").setEmoji("✍️"),
-        new StringSelectMenuOptionBuilder().setLabel("Hair & Makeup").setValue("makeup").setEmoji("💄"),
+        new StringSelectMenuOptionBuilder().setLabel("Stunts").setValue("stunts"),
+        new StringSelectMenuOptionBuilder().setLabel("Director").setValue("director"),
+        new StringSelectMenuOptionBuilder().setLabel("Producer").setValue("producer"),
+        new StringSelectMenuOptionBuilder().setLabel("Wardrobe").setValue("wardrobe"),
+        new StringSelectMenuOptionBuilder().setLabel("Props").setValue("props"),
+        new StringSelectMenuOptionBuilder().setLabel("Cinematographer").setValue("cinematographer"),
+        new StringSelectMenuOptionBuilder().setLabel("Student Filmmaker").setValue("student_filmmaker"),
+        new StringSelectMenuOptionBuilder().setLabel("Casting").setValue("casting"),
+        new StringSelectMenuOptionBuilder().setLabel("Lighting").setValue("lighting"),
+        new StringSelectMenuOptionBuilder().setLabel("Editor").setValue("editor"),
       ]);
 
     const locationSelect = new StringSelectMenuBuilder()
@@ -429,7 +434,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
       ]);
 
     await interaction.channel.send({
-      content: "## 🏷️ Get Your Community Roles\nSelect your craft specialization and where you are based using the dropdown menus below. You can return here to update or toggle your selections at any time!",
+      content: "## Community Roles\nSelect your craft and location using the menus below. Selecting a role you already have will remove it. You can update your selections any time.",
       components: [
         new ActionRowBuilder().addComponents(craftSelect),
         new ActionRowBuilder().addComponents(locationSelect)
@@ -459,10 +464,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     if (member.roles.cache.has(roleId)) {
       await member.roles.remove(roleId);
-      return interaction.editReply({ content: `👋 Removed the **${chosenLabel}** role.` });
+      return interaction.editReply({ content: `Removed the **${chosenLabel}** role.` });
     } else {
       await member.roles.add(roleId);
-      return interaction.editReply({ content: `✅ Added the **${chosenLabel}** role!` });
+      return interaction.editReply({ content: `Added the **${chosenLabel}** role.` });
     }
   }
 
@@ -490,7 +495,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
 
     await member.roles.add(targetRoleId);
     const chosenLabel = interaction.component.options.find(o => o.value === chosenValue).label;
-    return interaction.editReply({ content: `📍 Your location has been updated to **${chosenLabel}**.` });
+    return interaction.editReply({ content: `Location updated to **${chosenLabel}**.` });
   }
 
   // ── /new-gig → show Cast or Crew buttons ───────────────────────────────────
