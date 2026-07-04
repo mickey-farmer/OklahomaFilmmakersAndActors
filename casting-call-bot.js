@@ -89,6 +89,7 @@ const CRAFT_ROLE_OPTIONS = [
   { label: "Screenwriter",      value: "writer"            },
   { label: "Student Filmmaker", value: "student_filmmaker" },
   { label: "Stunts",            value: "stunts"            },
+  { label: "Sound",             value: "sound"             },
   { label: "Wardrobe",          value: "wardrobe"          },
 ];
 
